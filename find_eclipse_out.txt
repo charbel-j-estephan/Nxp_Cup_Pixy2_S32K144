@@ -1,0 +1,47 @@
+Searching for eclipse... 
+Drivers
+eclipse
+License
+nxpicon.ico
+Release_Notes
+S32DS
+s32ds.bat
+s32ds.ico
+SBOM
+Welcome.txt
+_S32 Design Studio for S32 Platform 3.6.5_installation
+--- 
+.eclipseproduct
+.s32dsplatform
+.s32dsproduct
+artifacts.xml
+configuration
+features
+jre
+mcu_data
+META-INF
+notice.html
+p2
+plugins
+readme
+s32ds.exe
+s32ds.ini
+s32dsc.exe
+--- 
+@echo off
+:: Copyright 2018-2021, 2023 NXP
+::
+:: NXP Confidential and Proprietary. This software is owned or controlled by NXP 
+:: and may only be used strictly in accordance with the applicable license terms. 
+:: By expressly accepting such terms or by downloading, installing, activating 
+:: and/or otherwise using the software, you are agreeing that you have read, and 
+:: that you agree to comply with and are bound by, such license terms. If you do 
+:: not agree to be bound by the applicable license terms, then you may not retain, 
+:: install, activate or otherwise use the software.
+
+:: Description: Setup environment (if needed) and start S32 Design Studio
+
+cd /D "%~dp0"
+cd eclipse
+
+start s32ds.exe %*

@@ -10,6 +10,12 @@ extern "C" {
  *                                        INCLUDE FILES
 ==================================================================================================*/
 #include "battery.h"
+#include "debug_signals.h"
+
+/*==================================================================================================
+ *                          FREEMASTER-WATCHED GLOBALS
+==================================================================================================*/
+volatile uint8 FmstrBatteryIsLow = 0U;   /* 0 = OK, 1 = low-voltage latch triggered */
 
 /*==================================================================================================
  *                                       LOCAL MACROS
@@ -87,6 +93,7 @@ boolean BatteryIsLow(uint16 PackMilliVolts){
     else{
         BatteryLowCounter = 0U;   /* recovered (e.g. load removed) -> reset */
     }
+    FmstrBatteryIsLow = (uint8)(BatteryLowCounter >= BATTERY_LOW_DEBOUNCE);
     return (boolean)(BatteryLowCounter >= BATTERY_LOW_DEBOUNCE);
 }
 

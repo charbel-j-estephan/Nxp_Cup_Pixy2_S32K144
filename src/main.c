@@ -25,6 +25,8 @@ extern "C" {
 #include "battery.h"
 #include "button.h"
 #include "pixy2.h"
+#include "freemaster.h"
+#include "freemaster_lpuart.h"
 
 /* Pixy2 fills this global with the raw I2C reply; a valid Pixy2 response starts with
  * the sync bytes 0xAF (or 0xAE) then 0xC1. Defined in pixy2.c. */
@@ -157,6 +159,12 @@ int main(void)
     DriversInit();
     DelayInit(48000000U);
 
+    /* FreeMASTER: bring up LPUART0 (PTA2/PTA3 → OpenSDA USB CDC bridge) then
+     * initialise the FreeMASTER engine. Both calls must happen after DriversInit()
+     * so that clocks, ports, and the PCC are already configured by the RTD stack. */
+    FmstrLpuartInit();
+    FMSTR_Init();
+
     /* OLED: I2C is already up from DriversInit(); just configure the display */
     DisplayInit(I2cConf_I2cChannel_Display_Channel, STD_ON);
 
@@ -216,6 +224,7 @@ int main(void)
         for(int Dir = -100; Dir <= 100; Dir++){   /* full left -> full right */
             Steer(Dir);
             FmstrDir = (sint16)Dir;                                     /* live steering for FreeMASTER */
+            FMSTR_Poll();                                               /* FreeMASTER communication tick */
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();                  /* whole 2S pack */
                 FmstrPackMv = PackMv;                                    /* mirrors for FreeMASTER */
@@ -232,6 +241,7 @@ int main(void)
         for(int Dir = 100; Dir >= -100; Dir--){   /* full right -> full left */
             Steer(Dir);
             FmstrDir = (sint16)Dir;
+            FMSTR_Poll();                                               /* FreeMASTER communication tick */
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();
                 FmstrPackMv = PackMv;

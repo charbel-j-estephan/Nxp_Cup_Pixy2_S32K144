@@ -21,11 +21,20 @@ extern "C" {
 * 3) internal and external interfaces from this unit
 ==================================================================================================*/
 #include "brushless.h"
+#include "debug_signals.h"
 
 /*==================================================================================================
 *                                      LOCAL CONSTANTS
 ==================================================================================================*/
 static volatile Brushless BrushlessInstance;
+
+/*==================================================================================================
+*                          FREEMASTER-WATCHED GLOBALS
+==================================================================================================*/
+volatile sint16 FmstrBrushlessSpeed      = 0;    /* commanded –100..+100              */
+volatile uint8  FmstrBrushlessBrake      = 0U;   /* 0 = off, 1 = braking              */
+volatile uint8  FmstrBrushlessState      = 2U;   /* 0=Fwd 1=Brk 2=Neu 3=Rev           */
+volatile uint16 FmstrBrushlessDutyCycle  = 0U;   /* raw PWM duty ticks                */
 
 /*==================================================================================================
 *                                       LOCAL FUNCTIONS
@@ -43,6 +52,7 @@ static void SetPwm(int SpeedCommand) {
     }
     Pwm_SetDutyCycle(BrushlessInstance.Channel1, DutyCycle);
     Pwm_SetDutyCycle(BrushlessInstance.Channel2, DutyCycle);
+    FmstrBrushlessDutyCycle = DutyCycle;   /* FreeMASTER live view */
 }
 
 /*==================================================================================================
@@ -52,6 +62,10 @@ static void SetPwm(int SpeedCommand) {
  * they receive identical speed/brake commands. Register on Channel1's falling-edge notification. */
 void Brushless_Period_Finished(void){
     int SpeedCommand;
+    /* Mirror state-machine internals to FreeMASTER globals at every PWM edge */
+    FmstrBrushlessSpeed = (sint16)BrushlessInstance.Speed;
+    FmstrBrushlessBrake = BrushlessInstance.Brake;
+    FmstrBrushlessState = (uint8)BrushlessInstance.State;
     /*if your chosen ESCs have braking capabilities, set BRUSHLESS_HAS_BRAKE to STD_ON. If not, STD_OFF.
      * Using the wrong configuration can make the car go full speed backward on braking!*/
 #if (BRUSHLESS_HAS_BRAKE == STD_ON)

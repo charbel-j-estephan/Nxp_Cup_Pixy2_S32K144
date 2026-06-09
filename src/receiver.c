@@ -23,8 +23,7 @@ extern "C" {
 ==================================================================================================*/
 #include "Icu.h"
 #include "Gpt.h"
-
-#include"receiver.h"
+#include "receiver.h"
 /*==================================================================================================
  *                          LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
 ==================================================================================================*/
@@ -125,6 +124,7 @@ int GetReceiverChannel(uint8 Channel){
     else{
         ChannelValue = 0;/*there program is not sync'd with the receiver, it is not safe!*/
     }
+
     return ChannelValue;
 }
 

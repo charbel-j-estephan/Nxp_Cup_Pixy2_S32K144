@@ -1,0 +1,4 @@
+Focusing IDE window (PID 10704)... 
+True
+True
+IDE PID 10704 brought to front

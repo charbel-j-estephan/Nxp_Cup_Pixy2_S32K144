@@ -21,23 +21,18 @@ extern "C" {
 * 3) internal and external interfaces from this unit
 ==================================================================================================*/
 #include "servo.h"
-
-/*==================================================================================================
-*                          LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
-==================================================================================================*/
-
-/*==================================================================================================
-*                                       LOCAL MACROS
-==================================================================================================*/
-
-/*==================================================================================================
-*                                      LOCAL CONSTANTS
-==================================================================================================*/
+#include "debug_signals.h"
 
 /*==================================================================================================
 *                                      LOCAL VARIABLES
 ==================================================================================================*/
 static Servo ServoInstance;
+
+/*==================================================================================================
+*                          FREEMASTER-WATCHED GLOBALS  (defined here, declared extern in debug_signals.h)
+==================================================================================================*/
+volatile sint16 FmstrSteerPosition  = 0;   /* last Steer() argument, –100..+100   */
+volatile uint16 FmstrServoDutyCycle = 0;   /* raw PWM duty ticks sent to servo    */
 /*==================================================================================================
 *                                      GLOBAL CONSTANTS
 ==================================================================================================*/
@@ -81,6 +76,8 @@ void Steer(int Direction){
         ServoDutyCycle = ServoInstance.MedDutyCycle - Direction*(int)(ServoInstance.MinDutyCycle-ServoInstance.MedDutyCycle)/100;
     }
     Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoDutyCycle);
+    FmstrSteerPosition  = (sint16)Direction;   /* FreeMASTER live view */
+    FmstrServoDutyCycle = ServoDutyCycle;
 }
 
 void SteerLeft(void){

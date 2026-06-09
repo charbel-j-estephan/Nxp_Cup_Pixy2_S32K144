@@ -1,0 +1,32 @@
+Checking for s32ds processes... 
+
+Image Name                     PID Session Name        Session#    Mem Usage
+========================= ======== ================ =========== ============
+s32ds.exe                     7652 Console                    1     49,732 K
+s32ds.exe                    10704 Console                    1    103,236 K
+s32ds.exe                    15920 Console                    1    299,460 K
+
+Image Name                     PID Session Name        Session#    Mem Usage
+========================= ======== ================ =========== ============
+s32dsc.exe                    3324 Console                    1    314,480 K
+--- window list --- 
+
+
+Id               : 7652
+MainWindowTitle  : S32 Design Studio for S32 Platform Launcher
+MainWindowHandle : 987224
+
+Id               : 10704
+MainWindowTitle  : workspaceS32DS.3.6.5 - Nxp_Cup_Pixy2_S32K144/src/main.c - S32 Design Studio for S32 Platform
+MainWindowHandle : 331310
+
+Id               : 15920
+MainWindowTitle  : S32 Design Studio for S32 Platform Launcher
+MainWindowHandle : 1052838
+
+
+
+--- 
+True
+True
+S32DS brought to front

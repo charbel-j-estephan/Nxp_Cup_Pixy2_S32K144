@@ -10,6 +10,7 @@ extern "C" {
  *                                        INCLUDE FILES
 ==================================================================================================*/
 #include "button.h"
+#include "debug_signals.h"
 
 /*==================================================================================================
  *                                       LOCAL MACROS
@@ -19,11 +20,18 @@ extern "C" {
 #define BUTTON_DIO_CHANNEL    ((Dio_ChannelType)142U)
 
 /*==================================================================================================
+ *                          FREEMASTER-WATCHED GLOBALS
+==================================================================================================*/
+volatile uint8 FmstrButtonPressed = 0U;   /* 0 = released, 1 = pressed (active-low, PTE14) */
+
+/*==================================================================================================
  *                                       GLOBAL FUNCTIONS
 ==================================================================================================*/
 boolean ButtonIsPressed(void){
     /* Active-low: a press pulls the pin to GND, so LOW means pressed. */
-    return (boolean)(Dio_ReadChannel(BUTTON_DIO_CHANNEL) == STD_LOW);
+    boolean Pressed = (boolean)(Dio_ReadChannel(BUTTON_DIO_CHANNEL) == STD_LOW);
+    FmstrButtonPressed = (uint8)Pressed;   /* FreeMASTER live view */
+    return Pressed;
 }
 
 #ifdef __cplusplus
