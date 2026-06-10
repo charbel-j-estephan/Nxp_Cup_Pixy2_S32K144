@@ -65,7 +65,6 @@ void ReceiverTest(void);
 void ServoTest(void);
 void LinearCameraTest(void);
 void Pixy2Test(void);
-void HbridgeTest(void);
 void EscTest(void);
 
 #ifdef __cplusplus
