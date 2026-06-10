@@ -17,7 +17,6 @@
  *   FMSTR_TSA_RO_VAR  – read-only (safer for live data).
  *   FMSTR_TSA_RO_MEM  – read-only block of memory (arrays).
  *   FMSTR_TSA_RW_MEM  – read-write block.
- *
  * FMSTR_USE_TSA_SAFETY (0 in freemaster_cfg.h) means all entries are
  * accessible regardless of RW/RO – change to 1 for production builds.
  ==================================================================================================*/

@@ -36,7 +36,6 @@ extern "C" {
 #include "receiver.h"
 #include "servo.h"
 #include "pixy2.h"
-#include "Hbridge.h"
 #include "esc.h"
 #include "linear_camera.h"
 /*==================================================================================================
@@ -238,41 +237,6 @@ void LinearCameraTest(){
         LinearCameraGetFrame(&FrameBuffer);
         DisplayGraph(0U, FrameBuffer.Values, 128U, 4U);
         DisplayRefresh();
-    }
-}
-
-void HbridgeTest(){
-    volatile int Delay;
-    volatile int Speed;
-    while(1){
-        for(Speed = 0; Speed <=100; Speed++){
-            Delay = 500000;
-            while(Delay){
-                Delay--;
-            }
-            HbridgeSetSpeed(Speed);
-        }
-        HbridgeSetBrake(1U);
-        HbridgeSetSpeed(0);
-        Delay = 5000000;
-        while(Delay){
-            Delay--;
-        }
-        HbridgeSetBrake(0U);
-        for(Speed = 0; Speed >= -100; Speed--){
-            Delay = 500000;
-            while(Delay){
-                Delay--;
-            }
-            HbridgeSetSpeed(Speed);
-        }
-        HbridgeSetBrake(1U);
-        HbridgeSetSpeed(0);
-        Delay = 5000000;
-        while(Delay){
-            Delay--;
-        }
-        HbridgeSetBrake(0U);
     }
 }
 

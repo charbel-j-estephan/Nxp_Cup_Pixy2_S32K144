@@ -25,20 +25,18 @@ extern "C" {
 #include "battery.h"
 #include "button.h"
 #include "pixy2.h"
-#include "freemaster.h"
-#include "freemaster_lpuart.h"
+#include "telemetry.h"
+#include "debug_signals.h"   /* FmstrPixyX0[]/FmstrPixyX1[] line-vector globals */
 
 /* Pixy2 fills this global with the raw I2C reply; a valid Pixy2 response starts with
  * the sync bytes 0xAF (or 0xAE) then 0xC1. Defined in pixy2.c. */
 extern I2c_DataType PixyReceivedLinesBuffer[];
 
 /*==================================================================================================
- *                          FREEMASTER-WATCHED GLOBALS
- * Read live by FreeMASTER over the PEmicro debug probe (run-mode memory access).
- * They MUST be global + volatile so they get a fixed RAM address in the .elf and the
- * compiler always writes the current value to memory. In FreeMASTER: connect with the
- * PEmicro plug-in, load this project's .elf for symbols, then add these to a
- * Scope (live) or Recorder (buffered) to graph them.
+ *                          TELEMETRY / STATE GLOBALS
+ * Live car state. Steering and throttle are sampled into the CSV telemetry line
+ * streamed to the Pico (see telemetry.c); battery values drive the OLED / low-
+ * battery cut-off. Kept volatile so they always reflect the latest value.
 ==================================================================================================*/
 volatile sint16 FmstrDir      = 0;   /* steering command, -100 (left) .. +100 (right) */
 volatile uint16 FmstrPackMv   = 0;   /* whole 2S pack voltage, mV                     */
@@ -126,7 +124,8 @@ static void WaitForStartButton(void)
         DelayMs(10U);
     }
 
-    /* Now wait for a clean, debounced press, then for its release. */
+    /* Now wait for a clean, debounced press, then for its release. Motor stays
+     * off (1638 = 0% throttle) the whole time. */
     for(;;){
         Pwm_SetDutyCycle(0U, 1638U);   /* motor stays off while waiting */
         if(BatteryIsLow(BatteryGetMilliVolts())){
@@ -159,11 +158,10 @@ int main(void)
     DriversInit();
     DelayInit(48000000U);
 
-    /* FreeMASTER: bring up LPUART0 (PTA2/PTA3 → OpenSDA USB CDC bridge) then
-     * initialise the FreeMASTER engine. Both calls must happen after DriversInit()
-     * so that clocks, ports, and the PCC are already configured by the RTD stack. */
-    FmstrLpuartInit();
-    FMSTR_Init();
+    /* Telemetry: bring up LPUART1 (PTC6/PTC7 → OpenSDA USB-CDC bridge) so the
+     * S32K can stream CSV telemetry to the Pico logger. Must run after
+     * DriversInit() so clocks, ports and the PCC are configured by the RTD stack. */
+    TelemetryInit();
 
     /* OLED: I2C is already up from DriversInit(); just configure the display */
     DisplayInit(I2cConf_I2cChannel_Display_Channel, STD_ON);
@@ -182,6 +180,16 @@ int main(void)
     /* Servo on channel 1 (PTE6). 2457 = 1.5ms center; Max=left, Min=right.
      * Hold the wheels straight. Tighten Max/Min if the steering binds at the ends. */
     ServoInit(Servo_Pwm, 3100U, 1800U, 2457U);
+    SteerLeft();
+    DelayMs(1000U);
+    SteerStraight();
+    DelayMs(1000U);
+    SteerRight();
+    DelayMs(1000U);
+    SteerStraight();
+    DelayMs(1000U);
+    SteerLeft();
+    DelayMs(1000U);
     SteerStraight();
 
     /* MAX point - connect the ESC battery NOW while this is held */
@@ -210,7 +218,7 @@ int main(void)
 
     /* Started: hold a gentle forward speed while the servo sweeps left<->right */
     Pwm_SetDutyCycle(0U, 2650U);   /* steady, gentle forward throttle */
-    FmstrThrottle = 2650U;         /* mirror for FreeMASTER */
+    FmstrThrottle = 2650U;         /* sampled into the telemetry line */
     DisplayClear();
     DisplayText(0U, "Servo + ESC", 11U, 0U);
     DisplayText(1U, "Dir:", 4U, 0U);
@@ -223,11 +231,17 @@ int main(void)
          * blocking battery read only run every 20 steps, so they don't throttle it. */
         for(int Dir = -100; Dir <= 100; Dir++){   /* full left -> full right */
             Steer(Dir);
-            FmstrDir = (sint16)Dir;                                     /* live steering for FreeMASTER */
-            FMSTR_Poll();                                               /* FreeMASTER communication tick */
+            FmstrDir = (sint16)Dir;                                     /* live steering */
+            if((Dir % 10) == 0){                                        /* ~20 ms (10 steps x 2 ms) -> ESP32 over I2C */
+                TelemetryState.steer_deg      = (sint16)(Dir * 40 / 100);          /* -40..+40 */
+                TelemetryState.motor_pwm_us   = (uint16)((uint32)FmstrThrottle * 1000U / 1638U); /* duty ticks -> us */
+                TelemetryState.pixy_vector_x0 = FmstrPixyX0[0];                     /* line vector 0 tail X */
+                TelemetryState.pixy_vector_x1 = FmstrPixyX1[0];                     /* line vector 0 head X */
+                TelemetrySend();                                                    /* push one packet to the ESP32 */
+            }
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();                  /* whole 2S pack */
-                FmstrPackMv = PackMv;                                    /* mirrors for FreeMASTER */
+                FmstrPackMv = PackMv;                                    /* feed OLED + low-batt check */
                 FmstrCellMv = BatteryCellMilliVolts(PackMv);
                 DisplayValue(1U, Dir, 4U, 5U);                          /* live steering value */
                 DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);/* live per-cell voltage */
@@ -241,7 +255,13 @@ int main(void)
         for(int Dir = 100; Dir >= -100; Dir--){   /* full right -> full left */
             Steer(Dir);
             FmstrDir = (sint16)Dir;
-            FMSTR_Poll();                                               /* FreeMASTER communication tick */
+            if((Dir % 10) == 0){                                        /* ~20 ms -> ESP32 over I2C */
+                TelemetryState.steer_deg      = (sint16)(Dir * 40 / 100);
+                TelemetryState.motor_pwm_us   = (uint16)((uint32)FmstrThrottle * 1000U / 1638U);
+                TelemetryState.pixy_vector_x0 = FmstrPixyX0[0];
+                TelemetryState.pixy_vector_x1 = FmstrPixyX1[0];
+                TelemetrySend();
+            }
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();
                 FmstrPackMv = PackMv;

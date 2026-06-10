@@ -1,7 +1,7 @@
 /*==================================================================================================
  * FreeMASTER configuration for NXP Cup S32K144 / MR-CANHUBK344
  *
- * Transport : LPUART0  →  OpenSDA USB CDC  (virtual COM port on the debug-USB connector)
+ * Transport : LPUART1  →  OpenSDA USB CDC  (virtual COM port on the debug-USB connector)
  * Baud rate : 115200
  * Mode      : Poll-driven  –  call FMSTR_Poll() from the main loop
  * TSA       : Enabled, ROM-resident  –  all variables auto-discovered by name in the
@@ -46,16 +46,18 @@
 
 /* -----------------------------------------------------------------------
  * Transport layer: use the built-in LPUART serial driver.
- * FMSTR_LPUART_BASE   : S32K144.h defines IP_LPUART0 = (LPUART_Type*)0x4006A000
- * FMSTR_LPUART_INDEX  : peripheral index 0
+ * FMSTR_LPUART_BASE   : S32K144.h defines IP_LPUART1 = (LPUART_Type*)0x4006B000
  *
- * Hardware wiring: LPUART0_TX = PTA3 (OpenSDA), LPUART0_RX = PTA2 (OpenSDA)
- * The OpenSDA chip on the debug-USB connector bridges these to a CDC virtual
- * COM port visible to the FreeMASTER PC tool as "COM x (Serial)".
+ * Hardware wiring: LPUART1_RX = PTC6 (OpenSDA), LPUART1_TX = PTC7 (OpenSDA).
+ * NOTE: PTA2/PTA3 are NOT used for the console — Port_Init() owns them as
+ * LPI2C0_SDA/SCL (the OLED + Pixy2 bus).  Using LPUART0 on PTA2/PTA3 would
+ * steal the I2C pins and hang the first display/camera transaction.
+ * The OpenSDA chip on the debug-USB connector bridges PTC6/PTC7 to a CDC
+ * virtual COM port visible to the FreeMASTER PC tool as "COM x (Serial)".
  * ----------------------------------------------------------------------- */
 #define FMSTR_TRANSPORT             FMSTR_SERIAL
 #define FMSTR_SERIAL_DRV            FMSTR_SERIAL_S32_LPUART
-#define FMSTR_LPUART_BASE           0x4006A000UL
+#define FMSTR_LPUART_BASE           0x4006B000UL
 
 /* -----------------------------------------------------------------------
  * Interrupt / polling model
@@ -91,4 +93,9 @@
 
 /* -----------------------------------------------------------------------
  * Miscellaneous
- * ------------------------------------------------------------
+ * FMSTR_COMM_BUFFER_SIZE : protocol RX/TX working buffer. 240 matches the
+ *                          SDK default (see freemaster_defcfg.h); must be >= 32.
+ * ----------------------------------------------------------------------- */
+#define FMSTR_COMM_BUFFER_SIZE      240U
+
+#endif /* FREEMASTER_CFG_H */
