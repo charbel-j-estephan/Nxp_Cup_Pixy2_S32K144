@@ -33,6 +33,35 @@ extern "C" {
 extern I2c_DataType PixyReceivedLinesBuffer[];
 
 /*==================================================================================================
+ *                          SERVO STEERING CALIBRATION
+ * FTM3 ch7 runs a 20 ms (50 Hz) frame; the duty arg is scaled 0..0x8000 (32768 = 100%),
+ * so 1 count = 20ms/32768 = 0.61 us of pulse width, and 1.5 ms = 0.075*32768 = 2457 counts.
+ *
+ * Convention: Steer(-100)=full left, Steer(+100)=full right, Steer(0)=straight.
+ *   SERVO_MAX_LEFT  = full-left  duty (higher pulse), SteerLeft()
+ *   SERVO_MAX_RIGHT = full-right duty (lower pulse),  SteerRight()
+ *   SERVO_CENTER    = straight-ahead trim,            SteerStraight()
+ *
+ * CENTERING PROCEDURE (do once per servo / after any remount):
+ *   1. Coarse: with power on and SERVO_CENTER at 2457, pull the horn off its spline
+ *      and re-seat it on the tooth that puts the wheels closest to straight.
+ *   2. Fine: nudge SERVO_CENTER until the wheels are dead straight. 1 count ~= 0.61 us;
+ *      1.5 ms tolerance between servos is ~+/-100 counts. Lower => wheels move RIGHT,
+ *      higher => wheels move LEFT.
+ *   3. Confirm: roll the car forward slowly on a flat floor; trim out any drift.
+ *
+ * END-STOPS: set MAX_LEFT/MAX_RIGHT just short of mechanical bind. If the servo
+ * buzzes/grinds at an extreme it is jammed on its stop -> back that value off.
+ *
+ * DIRECTION CHECK: the boot sweep calls SteerLeft() (=> SERVO_MAX_LEFT) first. If the
+ * wheels physically go RIGHT there, this servo's polarity is reversed for this car --
+ * simply swap the SERVO_MAX_LEFT and SERVO_MAX_RIGHT values below and rebuild.
+==================================================================================================*/
+#define SERVO_CENTER    2340U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
+#define SERVO_MAX_LEFT  3100U   /* full-left  duty (higher pulse) */
+#define SERVO_MAX_RIGHT 1800U   /* full-right duty (lower pulse)  */
+
+/*==================================================================================================
  *                          TELEMETRY / STATE GLOBALS
  * Live car state. Steering and throttle are sampled into the CSV telemetry line
  * streamed to the Pico (see telemetry.c); battery values drive the OLED / low-
@@ -179,7 +208,7 @@ int main(void)
 
     /* Servo on channel 1 (PTE6). 2457 = 1.5ms center; Max=left, Min=right.
      * Hold the wheels straight. Tighten Max/Min if the steering binds at the ends. */
-    ServoInit(Servo_Pwm, 3100U, 1800U, 2457U);
+    ServoInit(Servo_Pwm, SERVO_MAX_LEFT, SERVO_MAX_RIGHT, SERVO_CENTER);
     SteerLeft();
     DelayMs(1000U);
     SteerStraight();

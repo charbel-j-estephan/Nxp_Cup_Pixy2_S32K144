@@ -63,29 +63,37 @@ void ServoInit(Pwm_ChannelType ServoPwmChannel, uint16 MaxDutyCycle, uint16 MinD
 
 void Steer(int Direction){
     uint16 ServoDutyCycle;
-    if(Direction>(int)0){
-        if(Direction > 100){
-            Direction = 100;
-        }
-        ServoDutyCycle = ServoInstance.MedDutyCycle + Direction*(int)(ServoInstance.MaxDutyCycle-ServoInstance.MedDutyCycle)/100;
+
+    /* Clamp to the valid command range once, up front. */
+    if(Direction >  100){ Direction =  100; }
+    if(Direction < -100){ Direction = -100; }
+
+    /* Convention (matches FmstrDir and servo.h): Direction -100 = full left,
+     * +100 = full right, 0 = straight. MaxDutyCycle is the full-left duty and
+     * MinDutyCycle the full-right duty. Both branches use the same form
+     *     Med - Direction * span / 100
+     * so the output is continuous through 0 and lands exactly on
+     * Max / Med / Min at Direction = -100 / 0 / +100. */
+    if(Direction < 0){   /* steer left  -> rise toward MaxDutyCycle */
+        ServoDutyCycle = ServoInstance.MedDutyCycle
+                       - Direction*(int)(ServoInstance.MaxDutyCycle-ServoInstance.MedDutyCycle)/100;
     }
-    else{
-        if(Direction < -100){
-            Direction = -100;
-        }
-        ServoDutyCycle = ServoInstance.MedDutyCycle - Direction*(int)(ServoInstance.MinDutyCycle-ServoInstance.MedDutyCycle)/100;
+    else{                /* steer right (or center) -> fall toward MinDutyCycle */
+        ServoDutyCycle = ServoInstance.MedDutyCycle
+                       - Direction*(int)(ServoInstance.MedDutyCycle-ServoInstance.MinDutyCycle)/100;
     }
+
     Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoDutyCycle);
     FmstrSteerPosition  = (sint16)Direction;   /* FreeMASTER live view */
     FmstrServoDutyCycle = ServoDutyCycle;
 }
 
 void SteerLeft(void){
-    Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoInstance.MinDutyCycle);
+    Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoInstance.MaxDutyCycle);  /* Max = full left */
 }
 
 void SteerRight(void){
-    Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoInstance.MaxDutyCycle);
+    Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoInstance.MinDutyCycle);  /* Min = full right */
 }
 
 void SteerStraight(void){
