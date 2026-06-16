@@ -57,7 +57,7 @@ extern I2c_DataType PixyReceivedLinesBuffer[];
  * wheels physically go RIGHT there, this servo's polarity is reversed for this car --
  * simply swap the SERVO_MAX_LEFT and SERVO_MAX_RIGHT values below and rebuild.
 ==================================================================================================*/
-#define SERVO_CENTER    2340U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
+#define SERVO_CENTER    2345U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
 #define SERVO_MAX_LEFT  3100U   /* full-left  duty (higher pulse) */
 #define SERVO_MAX_RIGHT 1800U   /* full-right duty (lower pulse)  */
 
