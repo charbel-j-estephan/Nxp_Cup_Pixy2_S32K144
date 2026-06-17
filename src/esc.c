@@ -21,20 +21,12 @@ extern "C" {
 * 3) internal and external interfaces from this unit
 ==================================================================================================*/
 #include "esc.h"
-#include "debug_signals.h"
 
 /*==================================================================================================
 *                                      LOCAL CONSTANTS
 ==================================================================================================*/
 static volatile Esc EscInstance;
 
-/*==================================================================================================
-*                          FREEMASTER-WATCHED GLOBALS
-==================================================================================================*/
-volatile sint16 FmstrEscSpeed      = 0;    /* commanded speed –100..+100            */
-volatile uint8  FmstrEscBrake      = 0U;   /* 0 = off, 1 = braking                  */
-volatile uint8  FmstrEscState      = 2U;   /* EscStates: 0=Fwd 1=Brk 2=Neu 3=Rev   */
-volatile uint16 FmstrEscDutyCycle  = 0U;   /* raw PWM duty ticks written to ESC     */
 /*==================================================================================================
 *                                      LOCAL VARIABLES
 ==================================================================================================*/
@@ -64,15 +56,10 @@ static void SetPwm(int EscSpeedCommand) {
         EscDutyCycle = (uint16)(EscInstance.MedDutyCycle + EscSpeedCommand*(int)(EscInstance.MedDutyCycle-EscInstance.MinDutyCycle)/100);
         Pwm_SetDutyCycle(EscInstance.Channel, EscDutyCycle);
     }
-    FmstrEscDutyCycle = EscDutyCycle;   /* FreeMASTER live view */
 }
 
 void Esc_Period_Finished(void){
     int EscSpeedCommand;
-    /* Mirror state-machine internals to FreeMASTER globals at every PWM edge */
-    FmstrEscSpeed = (sint16)EscInstance.Speed;
-    FmstrEscBrake = EscInstance.Brake;
-    FmstrEscState = (uint8)EscInstance.State;
     /*if your chosen ESC has braking capabilities, set this on STD_ON. If not, set it on STD_OFF.
      * Using the wrong configuration can make the car go full speed backward on braking!*/
 #if (ESC_HAS_BRAKE == STD_ON)

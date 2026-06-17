@@ -1,19 +1,8 @@
-=== NXP Cup build Wed Jun 10 23:16:11 MEDT 2026 ===
+=== NXP Cup build Thu Jun 18 01:22:20 MEDT 2026 ===
 GCC  : /c/NXP/S32DS.3.6.5/S32DS/build_tools/gcc_v10.2/gcc-10.2-arm32-eabi/bin
 Make : /c/NXP/S32DS.3.6.5/S32DS/build_tools/msys32/usr/bin/make.exe
 
 === make all ===
-Building target: Nxp_Cup_Pixy2_S32K144.elf
-Invoking: Standard S32DS C Linker
-arm-none-eabi-gcc -o "Nxp_Cup_Pixy2_S32K144.elf" "@Nxp_Cup_Pixy2_S32K144.args"  
-c:/nxp/s32ds.3.6.5/s32ds/build_tools/gcc_v10.2/gcc-10.2-arm32-eabi/bin/../lib/gcc/arm-none-eabi/10.2.0/../../../../arm-none-eabi/bin/real-ld.exe: warning: c:/nxp/s32ds.3.6.5/s32ds/build_tools/gcc_v10.2/gcc-10.2-arm32-eabi/bin/../lib/gcc/arm-none-eabi/10.2.0/../../../../arm-none-eabi/lib/thumb/v7e-m+fp/hard\libc_nano.a(lib_a-memset.o) uses variable-size enums yet the output is to use 32-bit enums; use of enum values across objects may fail
-Finished building target: Nxp_Cup_Pixy2_S32K144.elf
- 
-Invoking: Standard S32DS Print Size
-arm-none-eabi-size --format=berkeley Nxp_Cup_Pixy2_S32K144.elf
-   text	   data	    bss	    dec	    hex	filename
-  91208	   1872	  12780	 105860	  19d84	Nxp_Cup_Pixy2_S32K144.elf
-Finished building: Nxp_Cup_Pixy2_S32K144.siz
- 
+make: *** No rule to make target 'src/telemetry.o', needed by 'Nxp_Cup_Pixy2_S32K144.elf'.  Stop.
 
-=== Build finished, exit 0 ===
+=== Build finished, exit 2 ===

@@ -21,18 +21,12 @@ extern "C" {
 * 3) internal and external interfaces from this unit
 ==================================================================================================*/
 #include "servo.h"
-#include "debug_signals.h"
 
 /*==================================================================================================
 *                                      LOCAL VARIABLES
 ==================================================================================================*/
 static Servo ServoInstance;
 
-/*==================================================================================================
-*                          FREEMASTER-WATCHED GLOBALS  (defined here, declared extern in debug_signals.h)
-==================================================================================================*/
-volatile sint16 FmstrSteerPosition  = 0;   /* last Steer() argument, –100..+100   */
-volatile uint16 FmstrServoDutyCycle = 0;   /* raw PWM duty ticks sent to servo    */
 /*==================================================================================================
 *                                      GLOBAL CONSTANTS
 ==================================================================================================*/
@@ -68,7 +62,7 @@ void Steer(int Direction){
     if(Direction >  100){ Direction =  100; }
     if(Direction < -100){ Direction = -100; }
 
-    /* Convention (matches FmstrDir and servo.h): Direction -100 = full left,
+    /* Convention (matches servo.h): Direction -100 = full left,
      * +100 = full right, 0 = straight. MaxDutyCycle is the full-left duty and
      * MinDutyCycle the full-right duty. Both branches use the same form
      *     Med - Direction * span / 100
@@ -84,8 +78,6 @@ void Steer(int Direction){
     }
 
     Pwm_SetDutyCycle(ServoInstance.ServoPwmChannel, ServoDutyCycle);
-    FmstrSteerPosition  = (sint16)Direction;   /* FreeMASTER live view */
-    FmstrServoDutyCycle = ServoDutyCycle;
 }
 
 void SteerLeft(void){
