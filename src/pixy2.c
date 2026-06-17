@@ -41,13 +41,22 @@ extern "C" {
 static volatile Pixy2 Pixy2Instance;
 
 I2c_DataType PixyReceivedLinesBuffer[100U];
-I2c_DataType PixyLinesRequestCommand[6U] = {174U, 193U, 48U, 2U, 1U, 1U};
+/* Line getFeatures request: {sync 0xAE,0xC1, type=48(getFeatures), len=2, REQUEST, FEATURES}.
+ * REQUEST byte (index 4): 0 = getMainFeatures (Pixy2's tracked main vector only, noise-filtered),
+ *                         1 = getAllFeatures  (every vector/branch/scratch -> noisy).
+ * FEATURES byte (index 5): bitmask, 1 = LINE_VECTOR. */
+I2c_DataType PixyLinesRequestCommand[6U] = {174U, 193U, 48U, 2U, 0U, 1U};
 I2c_DataType PixyLedSetCommand[7U] = {174U, 193U, 20U, 3U, 0U, 0U, 0U};
 I2c_DataType PixyLedSetReceiveBuffer[10U];
+/* Integrated white lamp: type=22(setLamp), len=2, {upper, lower}. Separate from the RGB LED. */
+I2c_DataType PixyLampSetCommand[6U] = {174U, 193U, 22U, 2U, 0U, 0U};
+I2c_DataType PixyLampSetReceiveBuffer[10U];
 I2c_RequestType PixyLinesRequest = {0x54, FALSE, FALSE, FALSE, FALSE, 6U, I2C_SEND_DATA, PixyLinesRequestCommand};
 I2c_RequestType PixyLinesReceive = {0x54, FALSE, FALSE, FALSE, FALSE, 100U, I2C_RECEIVE_DATA, PixyReceivedLinesBuffer};
 I2c_RequestType PixyLedRequest = {0x54, FALSE, FALSE, FALSE, FALSE, 7U, I2C_SEND_DATA, PixyLedSetCommand};
 I2c_RequestType PixyLedResponse = {0x54, FALSE, FALSE, FALSE, FALSE, 10U, I2C_RECEIVE_DATA, PixyLedSetReceiveBuffer};
+I2c_RequestType PixyLampRequest = {0x54, FALSE, FALSE, FALSE, FALSE, 6U, I2C_SEND_DATA, PixyLampSetCommand};
+I2c_RequestType PixyLampResponse = {0x54, FALSE, FALSE, FALSE, FALSE, 10U, I2C_RECEIVE_DATA, PixyLampSetReceiveBuffer};
 
 /*==================================================================================================
 *                                      GLOBAL CONSTANTS
@@ -79,6 +88,15 @@ void Pixy2SetLed(uint8 Red, uint8 Green, uint8 Blue){
     PixyLedSetCommand[6] = Blue;
     I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLedRequest);
     I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLedResponse);
+}
+
+/* Drive the integrated white headlights (0 = off, 1 = on). Turning the upper lamp on
+ * forces a shorter exposure, which cuts motion blur and gives cleaner line edges. */
+void Pixy2SetLamp(uint8 Upper, uint8 Lower){
+    PixyLampSetCommand[4] = Upper;
+    PixyLampSetCommand[5] = Lower;
+    I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLampRequest);
+    I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLampResponse);
 }
 
 void Pixy2GetVectors(DetectedVectors *DetectedVectors){

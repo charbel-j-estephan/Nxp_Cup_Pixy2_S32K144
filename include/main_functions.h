@@ -26,6 +26,23 @@ extern "C" {
 /*==================================================================================================
 *                          LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
 ==================================================================================================*/
+/* Reusable discrete PID controller. State lives in the struct, so it is reentrant and can be
+ * reset cleanly (e.g. when a line follower loses then re-acquires the line). Features:
+ *   - derivative on the MEASUREMENT (not the error) -> no kick if the set-point ever changes,
+ *   - first-order low-pass on the derivative (DerivAlpha, 0..1) to tame noise amplification,
+ *   - back-calculation anti-windup + a hard integral clamp,
+ *   - output saturation, and a bumpless first step after Init/Reset. */
+typedef struct{
+    float Kp, Ki, Kd;        /* gains                                                   */
+    float SetPoint;          /* target measurement                                      */
+    float OutMin, OutMax;    /* output saturation limits                                */
+    float IntLimit;          /* |integral| clamp (anti-windup)                          */
+    float DerivAlpha;        /* derivative LPF coefficient: 1 = none, smaller = smoother */
+    float Integral;          /* running integral term                                   */
+    float PrevMeas;          /* previous measurement (for derivative-on-measurement)    */
+    float DerivState;        /* filtered derivative term                                */
+    boolean Primed;          /* FALSE until the first update seeds PrevMeas             */
+}Pid;
 
 /*==================================================================================================
 *                                       LOCAL MACROS
@@ -60,6 +77,16 @@ extern "C" {
 ==================================================================================================*/
 void DriversInit(void);
 Vector NormalizePixyVector(Vector PixyVector);
+uint8 SmoothLineX(uint8 RawX);
+
+/* PID lifecycle. PidInit sets gains/limits and clears state; PidReset clears just the running
+ * state (integral, derivative, prime flag) keeping the gains; PidUpdate advances one step with
+ * the latest measurement and the elapsed time Dt (seconds) and returns the clamped output. */
+void  PidInit(Pid *Controller, float Kp, float Ki, float Kd, float SetPoint,
+              float OutMin, float OutMax, float IntLimit, float DerivAlpha);
+void  PidReset(Pid *Controller);
+float PidUpdate(Pid *Controller, float Measurement, float Dt);
+
 void DisplayTest(void);
 void ReceiverTest(void);
 void ServoTest(void);

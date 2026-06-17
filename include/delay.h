@@ -38,6 +38,14 @@ void DelayMs(uint32 Milliseconds);
 /* Blocks for the requested number of microseconds. */
 void DelayUs(uint32 Microseconds);
 
+/* Fixed-rate loop helpers. DelayStartPeriod() arms SysTick for one control period; do the loop
+ * work, then DelayWaitPeriodEnd() blocks until exactly that period has elapsed since the arm.
+ * Together they pace a loop at a constant rate, so a controller's dt is a known constant. The
+ * period must fit SysTick's 24-bit reload (<= ~349 ms at a 48 MHz core). Do NOT call DelayMs/
+ * DelayUs between the two -- they reprogram the same SysTick and would break the timing. */
+void DelayStartPeriod(uint32 Microseconds);
+void DelayWaitPeriodEnd(void);
+
 #ifdef __cplusplus
 }
 #endif
