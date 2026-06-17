@@ -35,9 +35,6 @@ fi
 echo "Make : $MAKE_EXE" | tee -a "$OUTPUT"
 echo "" | tee -a "$OUTPUT"
 
-# Ensure output dirs exist
-mkdir -p "$BUILD_DIR/src/freemaster_sdk"
-
 # Build (do NOT run make clean – it deletes the Eclipse-generated Makefile itself,
 # which cannot be recovered without the IDE. Use make all for incremental builds.)
 cd "$BUILD_DIR" || exit 1

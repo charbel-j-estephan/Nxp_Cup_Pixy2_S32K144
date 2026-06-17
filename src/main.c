@@ -25,8 +25,6 @@ extern "C" {
 #include "battery.h"
 #include "button.h"
 #include "pixy2.h"
-#include "telemetry.h"
-#include "debug_signals.h"   /* FmstrPixyX0[]/FmstrPixyX1[] line-vector globals */
 
 /* Pixy2 fills this global with the raw I2C reply; a valid Pixy2 response starts with
  * the sync bytes 0xAF (or 0xAE) then 0xC1. Defined in pixy2.c. */
@@ -61,16 +59,6 @@ extern I2c_DataType PixyReceivedLinesBuffer[];
 #define SERVO_MAX_LEFT  3100U   /* full-left  duty (higher pulse) */
 #define SERVO_MAX_RIGHT 1800U   /* full-right duty (lower pulse)  */
 
-/*==================================================================================================
- *                          TELEMETRY / STATE GLOBALS
- * Live car state. Steering and throttle are sampled into the CSV telemetry line
- * streamed to the Pico (see telemetry.c); battery values drive the OLED / low-
- * battery cut-off. Kept volatile so they always reflect the latest value.
-==================================================================================================*/
-volatile sint16 FmstrDir      = 0;   /* steering command, -100 (left) .. +100 (right) */
-volatile uint16 FmstrPackMv   = 0;   /* whole 2S pack voltage, mV                     */
-volatile uint16 FmstrCellMv   = 0;   /* estimated per-cell voltage, mV                */
-volatile uint16 FmstrThrottle = 0;   /* PWM duty currently commanded to the ESC       */
 
 /*==================================================================================================
  *                                       LOCAL FUNCTIONS
@@ -187,11 +175,6 @@ int main(void)
     DriversInit();
     DelayInit(48000000U);
 
-    /* Telemetry: bring up LPUART1 (PTC6/PTC7 → OpenSDA USB-CDC bridge) so the
-     * S32K can stream CSV telemetry to the Pico logger. Must run after
-     * DriversInit() so clocks, ports and the PCC are configured by the RTD stack. */
-    TelemetryInit();
-
     /* OLED: I2C is already up from DriversInit(); just configure the display */
     DisplayInit(I2cConf_I2cChannel_Display_Channel, STD_ON);
 
@@ -246,8 +229,7 @@ int main(void)
     DelayMs(2000U);
 
     /* Started: hold a gentle forward speed while the servo sweeps left<->right */
-    Pwm_SetDutyCycle(0U, 2650U);   /* steady, gentle forward throttle */
-    FmstrThrottle = 2650U;         /* sampled into the telemetry line */
+    Pwm_SetDutyCycle(0U, 1750);   /* steady, gentle forward throttle */
     DisplayClear();
     DisplayText(0U, "Servo + ESC", 11U, 0U);
     DisplayText(1U, "Dir:", 4U, 0U);
@@ -260,18 +242,8 @@ int main(void)
          * blocking battery read only run every 20 steps, so they don't throttle it. */
         for(int Dir = -100; Dir <= 100; Dir++){   /* full left -> full right */
             Steer(Dir);
-            FmstrDir = (sint16)Dir;                                     /* live steering */
-            if((Dir % 10) == 0){                                        /* ~20 ms (10 steps x 2 ms) -> ESP32 over I2C */
-                TelemetryState.steer_deg      = (sint16)(Dir * 40 / 100);          /* -40..+40 */
-                TelemetryState.motor_pwm_us   = (uint16)((uint32)FmstrThrottle * 1000U / 1638U); /* duty ticks -> us */
-                TelemetryState.pixy_vector_x0 = FmstrPixyX0[0];                     /* line vector 0 tail X */
-                TelemetryState.pixy_vector_x1 = FmstrPixyX1[0];                     /* line vector 0 head X */
-                TelemetrySend();                                                    /* push one packet to the ESP32 */
-            }
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();                  /* whole 2S pack */
-                FmstrPackMv = PackMv;                                    /* feed OLED + low-batt check */
-                FmstrCellMv = BatteryCellMilliVolts(PackMv);
                 DisplayValue(1U, Dir, 4U, 5U);                          /* live steering value */
                 DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);/* live per-cell voltage */
                 DisplayRefresh();
@@ -283,18 +255,8 @@ int main(void)
         }
         for(int Dir = 100; Dir >= -100; Dir--){   /* full right -> full left */
             Steer(Dir);
-            FmstrDir = (sint16)Dir;
-            if((Dir % 10) == 0){                                        /* ~20 ms -> ESP32 over I2C */
-                TelemetryState.steer_deg      = (sint16)(Dir * 40 / 100);
-                TelemetryState.motor_pwm_us   = (uint16)((uint32)FmstrThrottle * 1000U / 1638U);
-                TelemetryState.pixy_vector_x0 = FmstrPixyX0[0];
-                TelemetryState.pixy_vector_x1 = FmstrPixyX1[0];
-                TelemetrySend();
-            }
             if((Dir % 20) == 0){
                 uint16 PackMv = BatteryGetMilliVolts();
-                FmstrPackMv = PackMv;
-                FmstrCellMv = BatteryCellMilliVolts(PackMv);
                 DisplayValue(1U, Dir, 4U, 5U);
                 DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);
                 DisplayRefresh();

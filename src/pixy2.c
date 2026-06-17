@@ -23,7 +23,6 @@ extern "C" {
 #include "pixy2.h"
 #include "CDD_I2c.h"
 #include "Gpt.h"
-#include "debug_signals.h"
 /*==================================================================================================
 *                          LOCAL TYPEDEFS (STRUCTURES, UNIONS, ENUMS)
 ==================================================================================================*/
@@ -40,16 +39,6 @@ extern "C" {
 *                                      LOCAL VARIABLES
 ==================================================================================================*/
 static volatile Pixy2 Pixy2Instance;
-
-/*==================================================================================================
-*                          FREEMASTER-WATCHED GLOBALS
-==================================================================================================*/
-volatile uint8 FmstrPixyVectorCount = 0U;
-volatile uint8 FmstrPixyX0[4]  = {0U, 0U, 0U, 0U};
-volatile uint8 FmstrPixyY0[4]  = {0U, 0U, 0U, 0U};
-volatile uint8 FmstrPixyX1[4]  = {0U, 0U, 0U, 0U};
-volatile uint8 FmstrPixyY1[4]  = {0U, 0U, 0U, 0U};
-volatile uint8 FmstrPixyIndex[4] = {0U, 0U, 0U, 0U};
 
 I2c_DataType PixyReceivedLinesBuffer[100U];
 I2c_DataType PixyLinesRequestCommand[6U] = {174U, 193U, 48U, 2U, 1U, 1U};
@@ -115,25 +104,6 @@ void Pixy2GetVectors(DetectedVectors *DetectedVectors){
         Index += 2U + FeatureLength;
     }
     DetectedVectors->NumberOfVectors = CurrentVector;
-
-    /* --- Mirror to FreeMASTER globals (up to 4 vectors) --- */
-    FmstrPixyVectorCount = (uint8)CurrentVector;
-    for(uint8 FmstrIdx = 0U; FmstrIdx < 4U; FmstrIdx++){
-        if(FmstrIdx < CurrentVector){
-            FmstrPixyX0[FmstrIdx]    = DetectedVectors->Vectors[FmstrIdx].x0;
-            FmstrPixyY0[FmstrIdx]    = DetectedVectors->Vectors[FmstrIdx].y0;
-            FmstrPixyX1[FmstrIdx]    = DetectedVectors->Vectors[FmstrIdx].x1;
-            FmstrPixyY1[FmstrIdx]    = DetectedVectors->Vectors[FmstrIdx].y1;
-            FmstrPixyIndex[FmstrIdx] = DetectedVectors->Vectors[FmstrIdx].VectorIndex;
-        }
-        else{
-            FmstrPixyX0[FmstrIdx]    = 0U;
-            FmstrPixyY0[FmstrIdx]    = 0U;
-            FmstrPixyX1[FmstrIdx]    = 0U;
-            FmstrPixyY1[FmstrIdx]    = 0U;
-            FmstrPixyIndex[FmstrIdx] = 0U;
-        }
-    }
 }
 
 #ifdef __cplusplus
