@@ -71,6 +71,25 @@ void DelayMs(uint32 Milliseconds){
     }
 }
 
+void DelayStartPeriod(uint32 Microseconds){
+    uint32 Reload = (Microseconds * DelayTicksPerUs) - 1U;
+
+    S32_SysTick->CSRr = 0U;                                    /* stop counter             */
+    S32_SysTick->RVR = Reload & S32_SysTick_RVR_RELOAD_MASK;  /* load 24-bit reload value */
+    S32_SysTick->CVR = 0U;                                    /* clear current + COUNTFLAG */
+    S32_SysTick->CSRr = S32_SysTick_CSR_CLKSOURCE(1U) | S32_SysTick_CSR_ENABLE(1U);
+}
+
+void DelayWaitPeriodEnd(void){
+    /* Block until the counter underflows (COUNTFLAG sets). If the loop work already overran the
+     * period, COUNTFLAG is already set and this returns immediately -- a missed deadline, not a
+     * stall, so the control rate degrades gracefully instead of hanging. */
+    while((S32_SysTick->CSRr & S32_SysTick_CSR_COUNTFLAG_MASK) == 0U){
+        /* busy wait */
+    }
+    S32_SysTick->CSRr = 0U;                                    /* stop counter             */
+}
+
 #ifdef __cplusplus
 }
 #endif

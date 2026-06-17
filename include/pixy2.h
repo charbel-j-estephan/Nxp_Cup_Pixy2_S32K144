@@ -66,6 +66,7 @@ typedef struct{
 ==================================================================================================*/
 void Pixy2Init(I2c_AddressType PixyI2cAddress, uint8 PixyI2cChannel);
 void Pixy2SetLed(uint8 Red, uint8 Green, uint8 Blue);
+void Pixy2SetLamp(uint8 Upper, uint8 Lower);
 void Pixy2GetVectors(DetectedVectors *DetectedVectors);
 
 #ifdef __cplusplus

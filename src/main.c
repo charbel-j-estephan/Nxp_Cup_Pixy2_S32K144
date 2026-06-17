@@ -103,6 +103,7 @@ static void PixyCheck(void)
     }
 
     Pixy2SetLed(0U, 0U, 0U);   /* LED off before moving on */
+    Pixy2SetLamp(1U, 0U);      /* upper white lamp ON -> shorter exposure, less motion blur */
 }
 
 /* Battery too low: cut the motor, center the wheels, warn, and stay stopped.
@@ -228,44 +229,70 @@ int main(void)
     Pwm_SetDutyCycle(0U, 1638U);
     DelayMs(2000U);
 
-    /* Started: hold a gentle forward speed while the servo sweeps left<->right */
+    /* Started: hold a gentle constant forward speed; the PID drives the steering from the
+     * Pixy2 line vector ("steering only" -- throttle stays fixed). */
     Pwm_SetDutyCycle(0U, 1750);   /* steady, gentle forward throttle */
     DisplayClear();
-    DisplayText(0U, "Servo + ESC", 11U, 0U);
+    DisplayText(0U, "PID Line Follow", 15U, 0U);
     DisplayText(1U, "Dir:", 4U, 0U);
     DisplayText(2U, "Cell:", 5U, 0U);
     DisplayText(2U, "mV", 2U, 13U);
     DisplayRefresh();
 
+    /* Fixed-rate steering controller. The loop is paced to a constant period by SysTick
+     * (DelayStartPeriod/DelayWaitPeriodEnd), so the PID's dt is a known constant. */
+    const uint32 ControlPeriodUs = 20000U;   /* 50 Hz control tick                           */
+    const float  ControlDtS      = 0.02f;    /* seconds, must match ControlPeriodUs           */
+    const float  LineCenterX     = 39.0f;    /* center of the 0..78 Pixy2 line frame          */
+    const uint16 LineLostLimit   = 10U;      /* frames without a line before reset + recenter */
+
+    Pid    SteerPid;
+    DetectedVectors PixyVectors;
+    int    LastSteer  = 0;       /* held during brief dropouts, and shown on the OLED */
+    uint32 FrameCount = 0U;
+    uint16 LostFrames = 0U;
+
+    /* PidInit(Kp, Ki, Kd, SetPoint=0, OutMin, OutMax, IntLimit, DerivAlpha).
+     * Kp/Kd are TUNING starting points; Ki=0 (steering seldom needs integral). DerivAlpha 0.4
+     * lightly filters the derivative. Output is the -100..+100 steering command. */
+    PidInit(&SteerPid, 2.0f, 0.0f, 0.25f, 0.0f, -100.0f, 100.0f, 60.0f, 0.4f);
+
     while(1){
-        /* The servo steps every 2 ms for a fast sweep. The slow OLED refresh and the
-         * blocking battery read only run every 20 steps, so they don't throttle it. */
-        for(int Dir = -100; Dir <= 100; Dir++){   /* full left -> full right */
-            Steer(Dir);
-            if((Dir % 20) == 0){
-                uint16 PackMv = BatteryGetMilliVolts();                  /* whole 2S pack */
-                DisplayValue(1U, Dir, 4U, 5U);                          /* live steering value */
-                DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);/* live per-cell voltage */
-                DisplayRefresh();
-                if(BatteryIsLow(PackMv)){
-                    StopCar();   /* never returns */
-                }
-            }
-            DelayMs(2U);
+        DelayStartPeriod(ControlPeriodUs);       /* open the fixed control window */
+
+        /* One camera frame. getMainFeatures returns the tracked main vector (noise-filtered). */
+        Pixy2GetVectors(&PixyVectors);
+
+        if(PixyVectors.NumberOfVectors > 0U){
+            uint8 LineX = SmoothLineX((uint8)PixyVectors.Vectors[0].x1);  /* smoothed far-end X (0..78) */
+            /* Centered + sign-corrected line position: steering right makes the line move LEFT in
+             * frame, so we feed (center - X) against a zero set-point -> a positive PID output
+             * steers toward the line with positive gains. If it steers the WRONG way, negate this. */
+            float CenteredX = LineCenterX - (float)LineX;
+            int   SteerCmd  = (int)PidUpdate(&SteerPid, CenteredX, ControlDtS);
+            Steer(SteerCmd);
+            LastSteer  = SteerCmd;
+            LostFrames = 0U;
         }
-        for(int Dir = 100; Dir >= -100; Dir--){   /* full right -> full left */
-            Steer(Dir);
-            if((Dir % 20) == 0){
-                uint16 PackMv = BatteryGetMilliVolts();
-                DisplayValue(1U, Dir, 4U, 5U);
-                DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);
-                DisplayRefresh();
-                if(BatteryIsLow(PackMv)){
-                    StopCar();
-                }
-            }
-            DelayMs(2U);
+        else if(++LostFrames >= LineLostLimit){
+            PidReset(&SteerPid);                 /* clear stale I/D -> bumpless re-acquire */
+            Steer(0);                            /* recenter after a sustained line loss   */
+            LastSteer = 0;
         }
+        /* else: brief dropout -> hold the last steering command (servo stays put). */
+
+        /* Slow OLED refresh + blocking battery read every ~20 ticks so they don't stall steering. */
+        if((++FrameCount % 20U) == 0U){
+            uint16 PackMv = BatteryGetMilliVolts();
+            DisplayValue(1U, LastSteer, 4U, 5U);                       /* live steering command   */
+            DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);   /* live per-cell voltage   */
+            DisplayRefresh();
+            if(BatteryIsLow(PackMv)){
+                StopCar();   /* never returns */
+            }
+        }
+
+        DelayWaitPeriodEnd();                     /* sleep the rest of the period -> constant dt */
     }
 }
 

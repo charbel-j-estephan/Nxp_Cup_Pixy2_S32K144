@@ -137,6 +137,85 @@ Vector NormalizePixyVector(Vector PixyVector){
     return NormalizedVector;
 }
 
+/* Exponential moving average for the line's far end (vector x1) in Pixy2 line space (0..78).
+ * Call once per camera frame with the raw x1 and steer toward the returned value instead of
+ * the raw one, so a single noisy frame can't snap the servo. SMOOTHING: lower = smoother but
+ * slower to react, higher = faster but twitchier. Not yet wired in -- main()'s loop is an
+ * open-loop sweep; use this in the line-follow loop when the camera drives the steering. */
+uint8 SmoothLineX(uint8 RawX){
+    static float SmoothX = 39.0f;     /* start mid-frame (Pixy2 X range 0..78) */
+    const float SMOOTHING = 0.3f;
+    SmoothX = ((float)RawX * SMOOTHING) + (SmoothX * (1.0f - SMOOTHING));
+    return (uint8)(SmoothX + 0.5f);
+}
+
+/* ---- Reusable discrete PID controller (see Pid in main_functions.h) ------------------------ */
+
+void PidInit(Pid *Controller, float Kp, float Ki, float Kd, float SetPoint,
+             float OutMin, float OutMax, float IntLimit, float DerivAlpha){
+    Controller->Kp         = Kp;
+    Controller->Ki         = Ki;
+    Controller->Kd         = Kd;
+    Controller->SetPoint   = SetPoint;
+    Controller->OutMin     = OutMin;
+    Controller->OutMax     = OutMax;
+    Controller->IntLimit   = IntLimit;
+    Controller->DerivAlpha = DerivAlpha;
+    PidReset(Controller);
+}
+
+void PidReset(Pid *Controller){
+    Controller->Integral   = 0.0f;
+    Controller->PrevMeas   = 0.0f;
+    Controller->DerivState = 0.0f;
+    Controller->Primed     = FALSE;   /* next update seeds PrevMeas -> no derivative spike */
+}
+
+/* One control step. Measurement and SetPoint share the same units; the returned output is in
+ * [OutMin, OutMax]. Dt is the elapsed time in seconds (constant when called from a fixed-rate
+ * loop). Derivative is taken on the measurement and low-pass filtered; the integral uses
+ * back-calculation anti-windup so a saturated output cannot keep charging it. */
+float PidUpdate(Pid *Controller, float Measurement, float Dt){
+    float Error = Controller->SetPoint - Measurement;
+    float Pterm, Dmeas, Draw, Output;
+
+    /* Bumpless first step after Init/Reset: seed history, emit proportional-only. */
+    if(Controller->Primed == FALSE){
+        Controller->PrevMeas = Measurement;
+        Controller->Primed   = TRUE;
+    }
+
+    Pterm = Controller->Kp * Error;
+
+    /* Derivative on measurement (note the sign), then first-order low-pass filter. */
+    Dmeas = (Measurement - Controller->PrevMeas) / Dt;
+    Controller->PrevMeas = Measurement;
+    Draw = -Controller->Kd * Dmeas;
+    Controller->DerivState += Controller->DerivAlpha * (Draw - Controller->DerivState);
+
+    /* Integrate, then hard-clamp the accumulator. */
+    Controller->Integral += Controller->Ki * Error * Dt;
+    if(Controller->Integral >  Controller->IntLimit){ Controller->Integral =  Controller->IntLimit; }
+    if(Controller->Integral < -Controller->IntLimit){ Controller->Integral = -Controller->IntLimit; }
+
+    Output = Pterm + Controller->Integral + Controller->DerivState;
+
+    /* Output saturation with back-calculation anti-windup: if we clip, push the excess back out
+     * of the integral so it doesn't accumulate while saturated. */
+    if(Output > Controller->OutMax){
+        Controller->Integral -= (Output - Controller->OutMax);
+        if(Controller->Integral < -Controller->IntLimit){ Controller->Integral = -Controller->IntLimit; }
+        Output = Controller->OutMax;
+    }
+    else if(Output < Controller->OutMin){
+        Controller->Integral -= (Output - Controller->OutMin);   /* (Output-OutMin) < 0 -> raises I */
+        if(Controller->Integral >  Controller->IntLimit){ Controller->Integral =  Controller->IntLimit; }
+        Output = Controller->OutMin;
+    }
+
+    return Output;
+}
+
 void Pixy2Test(){
     DetectedVectors PixyVectors;
     volatile uint16 Delay = 10000;
