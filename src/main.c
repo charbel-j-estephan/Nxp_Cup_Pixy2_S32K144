@@ -55,7 +55,7 @@ extern I2c_DataType PixyReceivedLinesBuffer[];
  * wheels physically go RIGHT there, this servo's polarity is reversed for this car --
  * simply swap the SERVO_MAX_LEFT and SERVO_MAX_RIGHT values below and rebuild.
 ==================================================================================================*/
-#define SERVO_CENTER    2345U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
+#define SERVO_CENTER    2500U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
 #define SERVO_MAX_LEFT  3100U   /* full-left  duty (higher pulse) */
 #define SERVO_MAX_RIGHT 1800U   /* full-right duty (lower pulse)  */
 
@@ -173,6 +173,7 @@ static void WaitForStartButton(void)
  */
 int main(void)
 {
+
     DriversInit();
     DelayInit(48000000U);
 
@@ -238,6 +239,7 @@ int main(void)
     DisplayText(2U, "Cell:", 5U, 0U);
     DisplayText(2U, "mV", 2U, 13U);
     DisplayRefresh();
+
 
     /* Fixed-rate steering controller. The loop is paced to a constant period by SysTick
      * (DelayStartPeriod/DelayWaitPeriodEnd), so the PID's dt is a known constant. */
