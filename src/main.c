@@ -56,9 +56,33 @@ extern I2c_DataType PixyReceivedLinesBuffer[];
  * simply swap the SERVO_MAX_LEFT and SERVO_MAX_RIGHT values below and rebuild.
 ==================================================================================================*/
 #define SERVO_CENTER    2500U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
-#define SERVO_MAX_LEFT  3100U   /* full-left  duty (higher pulse) */
-#define SERVO_MAX_RIGHT 1800U   /* full-right duty (lower pulse)  */
+#define SERVO_MAX_LEFT  1800U   /* full-left  duty (lower pulse)  -- swapped: this servo's polarity is reversed */
+#define SERVO_MAX_RIGHT 3100U   /* full-right duty (higher pulse) -- swapped: this servo's polarity is reversed */
 
+/*==================================================================================================
+ *                          THROTTLE / SPEED GOVERNOR
+ * The ESC has NO feedback path (no RPM/current telemetry into the MCU), so throttle is fully
+ * open-loop. A flat kickstart->cruise step was found to cause the ESC to stall (likely BEMF
+ * commutation loss at low RPM under load / a hard-step read as a brake command) and then
+ * auto-resync, which looks like a "jumpstart" a couple seconds later.
+ *
+ * Fix: ramp duty up in small steps every control tick instead of jumping straight to cruise,
+ * and gate the ramp (and the whole drive command) on Pixy2 frame validity so a bad/garbage
+ * camera read cuts throttle back to MIN rather than continuing to ramp blind.
+ *
+ * NOTE: Pixy2 vectors give LINE POSITION, not vehicle speed -- there's no fixed track spacing
+ * to convert pixel movement into velocity. They're used here only as a "camera link is alive
+ * and sane" gate, not as an actual speed sensor. For real stall/speed feedback, the MPU6050 on
+ * the telemetry ESP32 would be the better source, but that's off-board today.
+==================================================================================================*/
+#define THROTTLE_MIN         1638U   /* 1.0ms = 0% throttle -> motor off on this unidirectional ESC */
+#define THROTTLE_KICKSTART   2100U   /* brief pulse to break static friction only               */
+#define THROTTLE_CRUISE_LO   1900U   /* ramp target floor  - re-tune on track                    */
+#define THROTTLE_CRUISE_HI   2050U   /* ramp target ceiling - re-tune on track                   */
+#define THROTTLE_RAMP_STEP   8U      /* counts added per 20ms tick -> 0->cruise in well under 1s */
+#define GARBAGE_FRAME_LIMIT  5U      /* consecutive bad Pixy2 frames before fail-safe throttle cut */
+#define PIXY_MAX_VECTORS     4U      /* sanity bound - match pixy2.h if it defines a max          */
+#define PIXY_FRAME_X_MAX     79U     /* frame is 0..78, matches LineCenterX = 39.0f below         */
 
 /*==================================================================================================
  *                                       LOCAL FUNCTIONS
@@ -162,6 +186,27 @@ static void WaitForStartButton(void)
     }
 }
 
+/* Validates a Pixy2 frame before it's trusted to drive the throttle ramp or steering PID.
+ * NOT a speed measurement -- purely a "is the camera link alive and the reply sane" gate:
+ *   - sync bytes match the known-good Pixy2 header (same check as PixyCheck() at boot)
+ *   - reported vector count is within a sane bound
+ *   - if a vector is present, its X coordinates fall inside the 0..78 frame
+ * Any failure here should be treated as "no trustworthy data this tick". */
+static boolean PixyFrameIsValid(const DetectedVectors *Vectors)
+{
+    boolean SyncOk  = (boolean)(((PixyReceivedLinesBuffer[0] == 175U) ||
+                                  (PixyReceivedLinesBuffer[0] == 174U)) &&
+                                  (PixyReceivedLinesBuffer[1] == 193U));
+    boolean CountOk = (boolean)(Vectors->NumberOfVectors <= PIXY_MAX_VECTORS);
+    boolean CoordOk = STD_ON;
+
+    if(Vectors->NumberOfVectors > 0U){
+        CoordOk = (boolean)((Vectors->Vectors[0].x0 < PIXY_FRAME_X_MAX) &&
+                             (Vectors->Vectors[0].x1 < PIXY_FRAME_X_MAX));
+    }
+    return (boolean)(SyncOk && CountOk && CoordOk);
+}
+
 /*==================================================================================================
  *                                       GLOBAL FUNCTIONS
 ==================================================================================================*/
@@ -190,6 +235,14 @@ int main(void)
     /* Battery sense reuses the (unused) linear-camera ADC: AdcGroup_0 = PTC16/SE14.
      * Wire the battery through a divider into PTC16 (see battery.h). */
     BatteryInit(AdcGroup_0);
+    DisplayClear();
+    uint16 DbgPack = BatteryGetMilliVolts();
+    DisplayText(0U,"PackmV",7U,0U);
+    DisplayValue(0U,DbgPack,6U,7U);
+    DisplayText(1U,"CellmV",7U,0U);
+    DisplayValue(1U, BatteryCellMilliVolts(DbgPack),6U,7U);
+    DisplayRefresh();
+    DelayMs(5000U);
 
     /* Servo on channel 1 (PTE6). 2457 = 1.5ms center; Max=left, Min=right.
      * Hold the wheels straight. Tighten Max/Min if the steering binds at the ends. */
@@ -223,23 +276,27 @@ int main(void)
     Pwm_SetDutyCycle(0U, 1638U);
     DelayMs(3000U);
 
-    /* Wait for the driver to press the start button before applying any throttle. */
+    /* Wait for the driver to press the start button before applying any throttle.
+     * (Single press now -- the duplicate call here previously required two presses.) */
     WaitForStartButton();          /* holds motor off; returns on a debounced press */
 
-    /* Give the driver 2 s to clear the car after pressing, motor still OFF. */
+    /* Give the driver 2 s to clear the car */
     Pwm_SetDutyCycle(0U, 1638U);
     DelayMs(2000U);
 
-    /* Started: hold a gentle constant forward speed; the PID drives the steering from the
-     * Pixy2 line vector ("steering only" -- throttle stays fixed). */
-    Pwm_SetDutyCycle(0U, 1750);   /* steady, gentle forward throttle */
+    /* KICKSTART: brief pulse only, just to break static friction. The old code held a
+     * fixed cruise duty (1850) right after this, which was too thin a margin above
+     * THROTTLE_MIN (1638) to sustain rotation under load and caused ESC stall/resync.
+     * Cruise is now reached by ramping in the control loop below instead of stepping. */
+    Pwm_SetDutyCycle(0U, THROTTLE_KICKSTART);
+    DelayMs(400U);
+
     DisplayClear();
     DisplayText(0U, "PID Line Follow", 15U, 0U);
     DisplayText(1U, "Dir:", 4U, 0U);
     DisplayText(2U, "Cell:", 5U, 0U);
     DisplayText(2U, "mV", 2U, 13U);
     DisplayRefresh();
-
 
     /* Fixed-rate steering controller. The loop is paced to a constant period by SysTick
      * (DelayStartPeriod/DelayWaitPeriodEnd), so the PID's dt is a known constant. */
@@ -250,9 +307,11 @@ int main(void)
 
     Pid    SteerPid;
     DetectedVectors PixyVectors;
-    int    LastSteer  = 0;       /* held during brief dropouts, and shown on the OLED */
-    uint32 FrameCount = 0U;
-    uint16 LostFrames = 0U;
+    int    LastSteer      = 0;       /* held during brief dropouts, and shown on the OLED */
+    uint32 FrameCount     = 0U;
+    uint16 LostFrames     = 0U;
+    uint16 CurrentThrottle = THROTTLE_MIN;   /* ramp starts from zero after the kickstart pulse */
+    uint8  GarbageFrames   = 0U;             /* consecutive invalid Pixy2 frames                */
 
     /* PidInit(Kp, Ki, Kd, SetPoint=0, OutMin, OutMax, IntLimit, DerivAlpha).
      * Kp/Kd are TUNING starting points; Ki=0 (steering seldom needs integral). DerivAlpha 0.4
@@ -265,23 +324,55 @@ int main(void)
         /* One camera frame. getMainFeatures returns the tracked main vector (noise-filtered). */
         Pixy2GetVectors(&PixyVectors);
 
-        if(PixyVectors.NumberOfVectors > 0U){
-            uint8 LineX = SmoothLineX((uint8)PixyVectors.Vectors[0].x1);  /* smoothed far-end X (0..78) */
-            /* Centered + sign-corrected line position: steering right makes the line move LEFT in
-             * frame, so we feed (center - X) against a zero set-point -> a positive PID output
-             * steers toward the line with positive gains. If it steers the WRONG way, negate this. */
-            float CenteredX = LineCenterX - (float)LineX;
-            int   SteerCmd  = (int)PidUpdate(&SteerPid, CenteredX, ControlDtS);
-            Steer(SteerCmd);
-            LastSteer  = SteerCmd;
-            LostFrames = 0U;
+        if(!PixyFrameIsValid(&PixyVectors)){
+            /* Bad/garbage reply this tick. A few in a row -> fail-safe: cut throttle back
+             * to MIN and hold straight rather than continuing to ramp/steer on noise. */
+            if(++GarbageFrames >= GARBAGE_FRAME_LIMIT){
+                CurrentThrottle = THROTTLE_MIN;
+                Pwm_SetDutyCycle(0U, CurrentThrottle);
+                SteerStraight();
+                LastSteer = 0;
+                DisplayClear();
+                DisplayText(0U, "PIXY DATA BAD", 13U, 0U);
+                DisplayRefresh();
+            }
+            /* else: single bad frame -> hold last throttle/steering, don't panic yet. */
         }
-        else if(++LostFrames >= LineLostLimit){
-            PidReset(&SteerPid);                 /* clear stale I/D -> bumpless re-acquire */
-            Steer(0);                            /* recenter after a sustained line loss   */
-            LastSteer = 0;
+        else{
+            GarbageFrames = 0U;
+
+            /* Ramp throttle toward cruise a few counts per tick instead of stepping flat.
+             * This is what removes the stall-then-jumpstart: the ESC always sees a smooth,
+             * small increase in commanded duty, never a big instantaneous jump. */
+            if(CurrentThrottle < THROTTLE_CRUISE_LO){
+                CurrentThrottle += THROTTLE_RAMP_STEP;
+                if(CurrentThrottle > THROTTLE_CRUISE_LO){
+                    CurrentThrottle = THROTTLE_CRUISE_LO;
+                }
+            }
+            else if(CurrentThrottle > THROTTLE_CRUISE_HI){
+                CurrentThrottle = THROTTLE_CRUISE_HI;   /* clamp, in case bounds get retuned */
+            }
+            Pwm_SetDutyCycle(0U, CurrentThrottle);
+
+            if(PixyVectors.NumberOfVectors > 0U){
+                uint8 LineX = SmoothLineX((uint8)PixyVectors.Vectors[0].x1);  /* smoothed far-end X (0..78) */
+                /* Centered + sign-corrected line position: steering right makes the line move LEFT in
+                 * frame, so we feed (center - X) against a zero set-point -> a positive PID output
+                 * steers toward the line with positive gains. If it steers the WRONG way, negate this. */
+                float CenteredX = LineCenterX - (float)LineX;
+                int   SteerCmd  = (int)PidUpdate(&SteerPid, CenteredX, ControlDtS);
+                Steer(SteerCmd);
+                LastSteer  = SteerCmd;
+                LostFrames = 0U;
+            }
+            else if(++LostFrames >= LineLostLimit){
+                PidReset(&SteerPid);                 /* clear stale I/D -> bumpless re-acquire */
+                Steer(0);                            /* recenter after a sustained line loss   */
+                LastSteer = 0;
+            }
+            /* else: brief dropout -> hold the last steering command (servo stays put). */
         }
-        /* else: brief dropout -> hold the last steering command (servo stays put). */
 
         /* Slow OLED refresh + blocking battery read every ~20 ticks so they don't stall steering. */
         if((++FrameCount % 20U) == 0U){
