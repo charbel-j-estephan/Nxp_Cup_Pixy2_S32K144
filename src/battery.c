@@ -21,8 +21,8 @@ extern "C" {
  * The code scales every ADC reading by SOURCE/PIN, so it stays accurate
  * regardless of exact resistor values, tolerances, or which way they're fitted.
  * Measured: 8.11 V at the pack -> 1.36 V on PTC16. */
-#define BATTERY_CAL_SOURCE_MV     (8110UL)    /* multimeter on the battery */
-#define BATTERY_CAL_PIN_MV        (1360UL)    /* multimeter on PTC16       */
+#define BATTERY_CAL_SOURCE_MV     (8040UL)    /* multimeter on the battery */
+#define BATTERY_CAL_PIN_MV        (800UL)    /* multimeter on PTC16       */
 
 #define ADC_VREF_MV               (3300UL)    /* ADC reference voltage, mV     */
 #define ADC_MAX_COUNT             (255UL)     /* 8-bit resolution -> 0..255    */
