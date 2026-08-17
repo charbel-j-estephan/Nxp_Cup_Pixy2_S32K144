@@ -45,7 +45,7 @@ I2c_DataType PixyReceivedLinesBuffer[100U];
  * REQUEST byte (index 4): 0 = getMainFeatures (Pixy2's tracked main vector only, noise-filtered),
  *                         1 = getAllFeatures  (every vector/branch/scratch -> noisy).
  * FEATURES byte (index 5): bitmask, 1 = LINE_VECTOR. */
-I2c_DataType PixyLinesRequestCommand[6U] = {174U, 193U, 48U, 2U, 0U, 1U};
+I2c_DataType PixyLinesRequestCommand[6U] = {174U, 193U, 48U, 2U, 1U, 3U};
 I2c_DataType PixyLedSetCommand[7U] = {174U, 193U, 20U, 3U, 0U, 0U, 0U};
 I2c_DataType PixyLedSetReceiveBuffer[10U];
 /* Integrated white lamp: type=22(setLamp), len=2, {upper, lower}. Separate from the RGB LED. */
@@ -101,24 +101,58 @@ void Pixy2SetLamp(uint8 Upper, uint8 Lower){
 
 void Pixy2GetVectors(DetectedVectors *DetectedVectors){
     uint16 Index = 6U, PacketLength, FeatureLength, VectorsNumber, CurrentVector = 0U, Offset;
+    uint8  FeatureType;
     uint8_t* FeatureDataPointer;
     I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLinesRequest);
     I2c_SyncTransmit(Pixy2Instance.I2cChannel, &PixyLinesReceive);
 
     PacketLength = PixyReceivedLinesBuffer[3U] + 4U;
+    DetectedVectors->NumberOfIntersections = 0U;   /* reset before this frame's parse */
+
     while(Index < PacketLength){
+        FeatureType   = PixyReceivedLinesBuffer[Index];        /* NEW: read the type byte  */
         FeatureLength = PixyReceivedLinesBuffer[Index + 1U];
-        VectorsNumber = FeatureLength /6U;
         FeatureDataPointer = &PixyReceivedLinesBuffer[Index + 2U];
-        for (uint8 FeatureDataIndex = 0U; FeatureDataIndex < VectorsNumber; FeatureDataIndex++) {
-            Offset = FeatureDataIndex * 6U;
-            DetectedVectors->Vectors[CurrentVector].x0 = FeatureDataPointer[Offset];
-            DetectedVectors->Vectors[CurrentVector].y0 = FeatureDataPointer[Offset + 1U];
-            DetectedVectors->Vectors[CurrentVector].x1 = FeatureDataPointer[Offset + 2U];
-            DetectedVectors->Vectors[CurrentVector].y1 = FeatureDataPointer[Offset + 3U];
-            DetectedVectors->Vectors[CurrentVector].VectorIndex = FeatureDataPointer[Offset + 4U];
-            CurrentVector++;
+
+        if(FeatureType == 1U){
+            VectorsNumber = FeatureLength / 6U;
+            for (uint8 FeatureDataIndex = 0U; FeatureDataIndex < VectorsNumber; FeatureDataIndex++) {
+                Offset = FeatureDataIndex * 6U;
+                DetectedVectors->Vectors[CurrentVector].x0 = FeatureDataPointer[Offset];
+                DetectedVectors->Vectors[CurrentVector].y0 = FeatureDataPointer[Offset + 1U];
+                DetectedVectors->Vectors[CurrentVector].x1 = FeatureDataPointer[Offset + 2U];
+                DetectedVectors->Vectors[CurrentVector].y1 = FeatureDataPointer[Offset + 3U];
+                DetectedVectors->Vectors[CurrentVector].VectorIndex = FeatureDataPointer[Offset + 4U];
+                CurrentVector++;
+            }
         }
+        else if(FeatureType == 2U){
+            uint16 SubOffset = 0U;
+            while (SubOffset < FeatureLength) {
+                uint8 BranchCount = FeatureDataPointer[SubOffset + 2U];
+                if (BranchCount > 6U) {
+                    BranchCount = 6U;   /* clamp -- guard against corrupt/garbage count */
+                }
+
+                if (DetectedVectors->NumberOfIntersections < 6U /* bound-check the output array too */) {
+                    uint8 CurrentIntersection = DetectedVectors->NumberOfIntersections;
+                    DetectedVectors->Intersections[CurrentIntersection].x = FeatureDataPointer[SubOffset + 0U];
+                    DetectedVectors->Intersections[CurrentIntersection].y = FeatureDataPointer[SubOffset + 1U];
+                    DetectedVectors->Intersections[CurrentIntersection].BranchCount = BranchCount;
+                    for (uint8 BranchIndex = 0U; BranchIndex < BranchCount; BranchIndex++) {
+                        DetectedVectors->Intersections[CurrentIntersection].BranchAngle[BranchIndex] =
+                            FeatureDataPointer[SubOffset + 3U + BranchIndex * 2U];
+                        DetectedVectors->Intersections[CurrentIntersection].BranchIndex[BranchIndex] =
+                            FeatureDataPointer[SubOffset + 3U + BranchIndex * 2U + 1U];
+                    }
+                    DetectedVectors->NumberOfIntersections++;
+                }
+
+                SubOffset += 3U + BranchCount * 2U;   /* advance by this record's actual size */
+            }
+        }
+        /* else: unknown feature type (e.g. barcode) -- length is still valid, so just skip its bytes */
+
         Index += 2U + FeatureLength;
     }
     DetectedVectors->NumberOfVectors = CurrentVector;

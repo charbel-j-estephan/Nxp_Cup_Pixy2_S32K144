@@ -23,7 +23,7 @@ extern "C" {
 #include "servo.h"
 #include "display.h"
 #include "battery.h"
-#include "button.h"
+#include "Switch.h"
 #include "pixy2.h"
 
 /* Pixy2 fills this global with the raw I2C reply; a valid Pixy2 response starts with
@@ -55,7 +55,7 @@ extern I2c_DataType PixyReceivedLinesBuffer[];
  * wheels physically go RIGHT there, this servo's polarity is reversed for this car --
  * simply swap the SERVO_MAX_LEFT and SERVO_MAX_RIGHT values below and rebuild.
 ==================================================================================================*/
-#define SERVO_CENTER    2500U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
+#define SERVO_CENTER    2450U   /* straight-ahead trim; -157 from 2457 (1.5ms) for a left-leaning neutral */
 #define SERVO_MAX_LEFT  1800U   /* full-left  duty (lower pulse)  -- swapped: this servo's polarity is reversed */
 #define SERVO_MAX_RIGHT 3100U   /* full-right duty (higher pulse) -- swapped: this servo's polarity is reversed */
 
@@ -129,84 +129,6 @@ static void PixyCheck(void)
     Pixy2SetLed(0U, 0U, 0U);   /* LED off before moving on */
     Pixy2SetLamp(1U, 0U);      /* upper white lamp ON -> shorter exposure, less motion blur */
 }
-
-/* Battery too low: cut the motor, center the wheels, warn, and stay stopped.
- * This ESC is unidirectional: 1.0ms (1638) = 0% throttle = OFF; 1.5ms (2457) = ~50%.
- * So we must command MIN (1638), not "neutral", to actually stop the motor. */
-static void StopCar(void)
-{
-    Pwm_SetDutyCycle(0U, 1638U);   /* MIN pulse = 0% throttle -> motor off */
-    SteerStraight();
-    DisplayClear();
-    DisplayText(0U, "LOW BATTERY!", 12U, 0U);
-    DisplayText(1U, "MOTOR STOPPED", 13U, 0U);
-    DisplayRefresh();
-    while(1){
-        Pwm_SetDutyCycle(0U, 1638U);   /* hold motor off forever */
-        DelayMs(100U);
-    }
-}
-
-/* Hold the motor OFF (1638 = 0% throttle on this unidirectional ESC) and block until
- * the driver presses the start button on PTE14. Active-low, debounced, press-once.
- * Battery is still watched here so a low pack while waiting still stops the car. */
-static void WaitForStartButton(void)
-{
-    DisplayClear();
-    DisplayText(0U, "Press to START", 14U, 0U);
-    DisplayRefresh();
-
-    /* Ignore a button that is already held when we arrive, so a stuck/held button
-     * can't auto-start the car. Wait for it to be released first. */
-    while(ButtonIsPressed()){
-        Pwm_SetDutyCycle(0U, 1638U);
-        if(BatteryIsLow(BatteryGetMilliVolts())){
-            StopCar();   /* never returns */
-        }
-        DelayMs(10U);
-    }
-
-    /* Now wait for a clean, debounced press, then for its release. Motor stays
-     * off (1638 = 0% throttle) the whole time. */
-    for(;;){
-        Pwm_SetDutyCycle(0U, 1638U);   /* motor stays off while waiting */
-        if(BatteryIsLow(BatteryGetMilliVolts())){
-            StopCar();   /* never returns */
-        }
-        if(ButtonIsPressed()){
-            DelayMs(30U);              /* debounce the contact bounce */
-            if(ButtonIsPressed()){     /* still pressed -> a real press */
-                while(ButtonIsPressed()){
-                    DelayMs(10U);      /* wait for release so we start exactly once */
-                }
-                return;
-            }
-        }
-        DelayMs(10U);
-    }
-}
-
-/* Validates a Pixy2 frame before it's trusted to drive the throttle ramp or steering PID.
- * NOT a speed measurement -- purely a "is the camera link alive and the reply sane" gate:
- *   - sync bytes match the known-good Pixy2 header (same check as PixyCheck() at boot)
- *   - reported vector count is within a sane bound
- *   - if a vector is present, its X coordinates fall inside the 0..78 frame
- * Any failure here should be treated as "no trustworthy data this tick". */
-static boolean PixyFrameIsValid(const DetectedVectors *Vectors)
-{
-    boolean SyncOk  = (boolean)(((PixyReceivedLinesBuffer[0] == 175U) ||
-                                  (PixyReceivedLinesBuffer[0] == 174U)) &&
-                                  (PixyReceivedLinesBuffer[1] == 193U));
-    boolean CountOk = (boolean)(Vectors->NumberOfVectors <= PIXY_MAX_VECTORS);
-    boolean CoordOk = STD_ON;
-
-    if(Vectors->NumberOfVectors > 0U){
-        CoordOk = (boolean)((Vectors->Vectors[0].x0 < PIXY_FRAME_X_MAX) &&
-                             (Vectors->Vectors[0].x1 < PIXY_FRAME_X_MAX));
-    }
-    return (boolean)(SyncOk && CountOk && CoordOk);
-}
-
 /*==================================================================================================
  *                                       GLOBAL FUNCTIONS
 ==================================================================================================*/
@@ -276,117 +198,83 @@ int main(void)
     Pwm_SetDutyCycle(0U, 1638U);
     DelayMs(3000U);
 
-    /* Wait for the driver to press the start button before applying any throttle.
-     * (Single press now -- the duplicate call here previously required two presses.) */
-    WaitForStartButton();          /* holds motor off; returns on a debounced press */
-
     /* Give the driver 2 s to clear the car */
     Pwm_SetDutyCycle(0U, 1638U);
     DelayMs(2000U);
+    boolean start = true;
+    uint16 Battery;
 
-    /* KICKSTART: brief pulse only, just to break static friction. The old code held a
-     * fixed cruise duty (1850) right after this, which was too thin a margin above
-     * THROTTLE_MIN (1638) to sustain rotation under load and caused ESC stall/resync.
-     * Cruise is now reached by ramping in the control loop below instead of stepping. */
-    Pwm_SetDutyCycle(0U, THROTTLE_KICKSTART);
-    DelayMs(400U);
+    for (;;){
+    	if(ButtonIsPressed()){
+			if (start == true){
+				/* KICKSTART: brief pulse only, just to break static friction. The old code held a
+				 * fixed cruise duty (1850) right after this, which was too thin a margin above
+				 * THROTTLE_MIN (1638) to sustain rotation under load and caused ESC stall/resync.
+				 * Cruise is now reached by ramping in the control loop below instead of stepping. */
+				Pwm_SetDutyCycle(0U, THROTTLE_KICKSTART);
+				DelayMs(400U);
+				start = false;
+				DisplayClear();
+				DisplayText(0U, "Vector:", 7U, 0U);
+				DisplayText(1U, "Angle:", 4U, 0U);
+				DisplayText(2U, "Cell:", 5U, 0U);
+				DisplayText(3U, "Inters:", 7U, 0U);
+				DisplayRefresh();
+			}
 
-    DisplayClear();
-    DisplayText(0U, "PID Line Follow", 15U, 0U);
-    DisplayText(1U, "Dir:", 4U, 0U);
-    DisplayText(2U, "Cell:", 5U, 0U);
-    DisplayText(2U, "mV", 2U, 13U);
-    DisplayRefresh();
+			/* Fixed-rate steering controller. The loop is paced to a constant period by SysTick
+			 * (DelayStartPeriod/DelayWaitPeriodEnd), so the PID's dt is a known constant. */
+			const uint32 ControlPeriodUs = 1000000U;   /* 50 Hz control tick */
 
-    /* Fixed-rate steering controller. The loop is paced to a constant period by SysTick
-     * (DelayStartPeriod/DelayWaitPeriodEnd), so the PID's dt is a known constant. */
-    const uint32 ControlPeriodUs = 20000U;   /* 50 Hz control tick                           */
-    const float  ControlDtS      = 0.02f;    /* seconds, must match ControlPeriodUs           */
-    const float  LineCenterX     = 39.0f;    /* center of the 0..78 Pixy2 line frame          */
-    const uint16 LineLostLimit   = 10U;      /* frames without a line before reset + recenter */
+			/* hold motor off forever */
+			Pwm_SetDutyCycle(0U, 1638U);
+			DelayMs(100U);
 
-    Pid    SteerPid;
-    DetectedVectors PixyVectors;
-    int    LastSteer      = 0;       /* held during brief dropouts, and shown on the OLED */
-    uint32 FrameCount     = 0U;
-    uint16 LostFrames     = 0U;
-    uint16 CurrentThrottle = THROTTLE_MIN;   /* ramp starts from zero after the kickstart pulse */
-    uint8  GarbageFrames   = 0U;             /* consecutive invalid Pixy2 frames                */
+			DetectedVectors PixyVectors;
 
-    /* PidInit(Kp, Ki, Kd, SetPoint=0, OutMin, OutMax, IntLimit, DerivAlpha).
-     * Kp/Kd are TUNING starting points; Ki=0 (steering seldom needs integral). DerivAlpha 0.4
-     * lightly filters the derivative. Output is the -100..+100 steering command. */
-    PidInit(&SteerPid, 2.0f, 0.0f, 0.25f, 0.0f, -100.0f, 100.0f, 60.0f, 0.4f);
+			DelayStartPeriod(ControlPeriodUs);       /* open the fixed control window */
 
-    while(1){
-        DelayStartPeriod(ControlPeriodUs);       /* open the fixed control window */
+			/* One camera frame. getMainFeatures returns the tracked main vector (noise-filtered). */
+			Pixy2GetVectors(&PixyVectors);
 
-        /* One camera frame. getMainFeatures returns the tracked main vector (noise-filtered). */
-        Pixy2GetVectors(&PixyVectors);
+			if (PixyVectors.NumberOfIntersections == 0U){
+				DisplayValue(0U, PixyVectors.NumberOfVectors, 6U, 8U);
+				DisplayValue(1U, 0U , 6U, 7U);
+				DisplayValue(2U, BatteryGetMilliVolts() , 6U, 6U);
+				DisplayValue(3U, PixyVectors.NumberOfIntersections, 6U, 8U);
+				DisplayRefresh();
+			} else {
+				DisplayValue(0U, PixyVectors.NumberOfVectors, 6U, 8U);
+				DisplayValue(1U, 0U , 6U, 7U);
+				DisplayValue(2U, BatteryGetMilliVolts() , 6U, 6U);
+				DisplayValue(3U, PixyVectors.NumberOfIntersections, 6U, 8U);
+				DisplayRefresh();
+			}
 
-        if(!PixyFrameIsValid(&PixyVectors)){
-            /* Bad/garbage reply this tick. A few in a row -> fail-safe: cut throttle back
-             * to MIN and hold straight rather than continuing to ramp/steer on noise. */
-            if(++GarbageFrames >= GARBAGE_FRAME_LIMIT){
-                CurrentThrottle = THROTTLE_MIN;
-                Pwm_SetDutyCycle(0U, CurrentThrottle);
-                SteerStraight();
-                LastSteer = 0;
-                DisplayClear();
-                DisplayText(0U, "PIXY DATA BAD", 13U, 0U);
-                DisplayRefresh();
-            }
-            /* else: single bad frame -> hold last throttle/steering, don't panic yet. */
-        }
-        else{
-            GarbageFrames = 0U;
-
-            /* Ramp throttle toward cruise a few counts per tick instead of stepping flat.
-             * This is what removes the stall-then-jumpstart: the ESC always sees a smooth,
-             * small increase in commanded duty, never a big instantaneous jump. */
-            if(CurrentThrottle < THROTTLE_CRUISE_LO){
-                CurrentThrottle += THROTTLE_RAMP_STEP;
-                if(CurrentThrottle > THROTTLE_CRUISE_LO){
-                    CurrentThrottle = THROTTLE_CRUISE_LO;
-                }
-            }
-            else if(CurrentThrottle > THROTTLE_CRUISE_HI){
-                CurrentThrottle = THROTTLE_CRUISE_HI;   /* clamp, in case bounds get retuned */
-            }
-            Pwm_SetDutyCycle(0U, CurrentThrottle);
-
-            if(PixyVectors.NumberOfVectors > 0U){
-                uint8 LineX = SmoothLineX((uint8)PixyVectors.Vectors[0].x1);  /* smoothed far-end X (0..78) */
-                /* Centered + sign-corrected line position: steering right makes the line move LEFT in
-                 * frame, so we feed (center - X) against a zero set-point -> a positive PID output
-                 * steers toward the line with positive gains. If it steers the WRONG way, negate this. */
-                float CenteredX = LineCenterX - (float)LineX;
-                int   SteerCmd  = (int)PidUpdate(&SteerPid, CenteredX, ControlDtS);
-                Steer(SteerCmd);
-                LastSteer  = SteerCmd;
-                LostFrames = 0U;
-            }
-            else if(++LostFrames >= LineLostLimit){
-                PidReset(&SteerPid);                 /* clear stale I/D -> bumpless re-acquire */
-                Steer(0);                            /* recenter after a sustained line loss   */
-                LastSteer = 0;
-            }
-            /* else: brief dropout -> hold the last steering command (servo stays put). */
-        }
-
-        /* Slow OLED refresh + blocking battery read every ~20 ticks so they don't stall steering. */
-        if((++FrameCount % 20U) == 0U){
-            uint16 PackMv = BatteryGetMilliVolts();
-            DisplayValue(1U, LastSteer, 4U, 5U);                       /* live steering command   */
-            DisplayValue(2U, BatteryCellMilliVolts(PackMv), 6U, 6U);   /* live per-cell voltage   */
-            DisplayRefresh();
-            if(BatteryIsLow(PackMv)){
-                StopCar();   /* never returns */
-            }
-        }
-
-        DelayWaitPeriodEnd();                     /* sleep the rest of the period -> constant dt */
-    }
+			DelayWaitPeriodEnd();                     /* sleep the rest of the period -> constant dt */
+		} else {
+			/* hold motor off forever */
+			Pwm_SetDutyCycle(0U, 1638U);
+			DelayMs(100U);
+			/*making a startup throttle kick available when the car starts*/
+			start = true;
+			Battery = BatteryGetMilliVolts();
+			/* Check first if the button is released due to low voltage*/
+			if (BatteryIsLow(Battery)){
+				DisplayClear();
+				DisplayText(0U,"Low",7U,0U);
+				DisplayText(0U,"Voltage",7U,4U);
+				DisplayText(1U,"CellmV",7U,0U);
+				DisplayValue(1U, Battery,6U,7U);
+				DisplayRefresh();
+			} else {
+				/*displaying press to start*/
+				DisplayClear();
+				DisplayText(0U,"Press to start",14U,0U);
+				DisplayRefresh();
+			}
+		}
+	}
 }
 
 #ifdef __cplusplus
@@ -394,3 +282,4 @@ int main(void)
 #endif
 
 /** @} */
+

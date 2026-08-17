@@ -9,23 +9,39 @@ extern "C" {
 /*==================================================================================================
  *                                        INCLUDE FILES
 ==================================================================================================*/
-#include "button.h"
+#include "Switch.h"
+#include "battery.h"
+#include "delay.h"
 
 /*==================================================================================================
  *                                       LOCAL MACROS
 ==================================================================================================*/
 /* PTE14 Dio channel id = port E (index 4) * 32 + pin 14 = 142. No symbolic name
  * exists in Dio_Cfg.h for this pin, so the raw channel id is used. */
-#define BUTTON_DIO_CHANNEL    ((Dio_ChannelType)142U)
+#define SWITCH_DIO_CHANNEL    ((Dio_ChannelType)142U)
 
 /*==================================================================================================
  *                                       GLOBAL FUNCTIONS
 ==================================================================================================*/
 boolean ButtonIsPressed(void){
-    /* Active-low: a press pulls the pin to GND, so LOW means pressed. */
-    boolean Pressed = (boolean)(Dio_ReadChannel(BUTTON_DIO_CHANNEL) == STD_LOW);
-    return Pressed;
+    /* Active-low: switch closed pulls the pin to GND, so LOW means the switch is ON/closed. */
+    uint8 counter = 0U;
+    boolean SwitchClosed = false;
+
+    for (uint8 i = 0U; i <= 9U; i++){
+        if (Dio_ReadChannel(SWITCH_DIO_CHANNEL) == STD_LOW){
+            counter++;
+        }
+        DelayMs(1U);
+    }
+
+    if ((counter >= 7U) && !BatteryIsLow(BatteryGetMilliVolts())){
+        SwitchClosed = true;
+    }
+
+    return SwitchClosed;
 }
+
 
 #ifdef __cplusplus
 }

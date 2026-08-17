@@ -32,8 +32,17 @@ typedef struct{
 }Vector;
 
 typedef struct {
-    uint8 NumberOfVectors;
+    uint8 x, y;
+    uint8 BranchCount;
+    uint8 BranchAngle[100];
+    uint8 BranchIndex[100];
+} Intersection;
+
+typedef struct {
     Vector Vectors[100];
+    uint16 NumberOfVectors;
+    Intersection Intersections[100];   /* NEW */
+    uint16 NumberOfIntersections;                          /* NEW */
 } DetectedVectors;
 
 /*==================================================================================================

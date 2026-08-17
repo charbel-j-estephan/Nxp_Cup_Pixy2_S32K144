@@ -28,6 +28,7 @@ extern "C" {
 /* TRUE while the button is held down (active-low: pin reads LOW when pressed).
  * This is a raw, un-debounced read; debounce in the caller if needed. */
 boolean ButtonIsPressed(void);
+boolean ButtonIsReleased(void);
 
 #ifdef __cplusplus
 }
