@@ -57,6 +57,8 @@
                   <pin peripheral="PORTE" signal="port, 14" pin_num="17" pin_signal="PTE14">
                      <pin_features>
                         <pin_feature name="direction" value="INPUT"/>
+                        <pin_feature name="PE" value="state_1"/>
+                        <pin_feature name="PS" value="state_1"/>
                      </pin_features>
                   </pin>
                   <pin peripheral="FTM3" signal="ftm3_ch6" pin_num="85" pin_signal="PTE2">
